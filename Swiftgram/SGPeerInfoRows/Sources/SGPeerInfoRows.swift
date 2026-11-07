@@ -175,5 +175,13 @@ func sgPeerInfoSettingsItems(context: AccountContext, paymentsEnabled: Bool, pre
     items.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.swiftgram)
     }))
+    // MARK: Ghost mode
+    let isRussian = presentationData.strings.baseLanguageCode == "ru"
+    let ghostTitle = isRussian ? "Режим призрака" : "Ghost Mode"
+    let ghostEnabled = SGSimpleSettings.shared.ghostModeEnabled
+    let ghostLabel: PeerInfoScreenDisclosureItem.Label = .text(isRussian ? (ghostEnabled ? "Вкл" : "Выкл") : (ghostEnabled ? "On" : "Off"))
+    items.append(PeerInfoScreenDisclosureItem(id: 2, label: ghostLabel, text: ghostTitle, icon: PresentationResourcesSettings.swiftgram, action: {
+        interaction.openSettings(.swiftgramGhost)
+    }))
     return items
 }

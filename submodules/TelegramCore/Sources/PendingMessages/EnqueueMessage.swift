@@ -3,6 +3,7 @@ import Postbox
 internal import TelegramApi
 import SwiftSignalKit
 import Emoji
+import SGSimpleSettings // MARK: Ghost mode
 
 public enum EnqueueMessageGrouping {
     case none
@@ -727,7 +728,58 @@ private func opportunisticallyTransformOutgoingMedia(network: Network, postbox: 
     return combineLatest(signals)
 }
 
+// MARK: Ghost mode
+/// Sends the messages through the scheduled-message path, so the server delivers them a few seconds later
+/// and the account does not have to be online at the moment they appear.
+/// Chats that do not support scheduling (secret chats, bots, Saved Messages, direct-message threads) are left alone.
+private func ghostScheduledMessages(transaction: Transaction, account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> [EnqueueMessage] {
+    if peerId == account.peerId || peerId.namespace == Namespaces.Peer.SecretChat {
+        return messages
+    }
+    guard let peer = transaction.getPeer(peerId) else {
+        return messages
+    }
+    if let user = peer as? TelegramUser {
+        if user.botInfo != nil {
+            return messages
+        }
+    } else if let channel = peer as? TelegramChannel {
+        if channel.flags.contains(.isMonoforum) {
+            return messages
+        }
+    } else if !(peer is TelegramGroup) {
+        return messages
+    }
+
+    let scheduleTime = Int32(account.network.globalTime) + SGSimpleSettings.ghostScheduledSendDelay
+
+    return messages.map { message -> EnqueueMessage in
+        return message.withUpdatedAttributes { attributes -> [MessageAttribute] in
+            for attribute in attributes {
+                // Respect an explicit schedule, and paid messages, which cannot be postponed.
+                if attribute is OutgoingScheduleInfoMessageAttribute || attribute is PaidStarsMessageAttribute {
+                    return attributes
+                }
+            }
+            return attributes + [OutgoingScheduleInfoMessageAttribute(scheduleTime: scheduleTime, repeatPeriod: nil)]
+        }
+    }
+}
+
 public func enqueueMessages(account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> Signal<[MessageId?], NoError> {
+    // MARK: Ghost mode
+    if SGSimpleSettings.shared.isGhostScheduledSendEnabled {
+        return account.postbox.transaction { transaction -> [EnqueueMessage] in
+            return ghostScheduledMessages(transaction: transaction, account: account, peerId: peerId, messages: messages)
+        }
+        |> mapToSignal { messages -> Signal<[MessageId?], NoError> in
+            return enqueueMessagesImpl(account: account, peerId: peerId, messages: messages)
+        }
+    }
+    return enqueueMessagesImpl(account: account, peerId: peerId, messages: messages)
+}
+
+private func enqueueMessagesImpl(account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> Signal<[MessageId?], NoError> {
     let signal: Signal<[(Bool, EnqueueMessage)], NoError>
     if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
         signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)

@@ -2,6 +2,7 @@ import Foundation
 import Postbox
 internal import TelegramApi
 import SwiftSignalKit
+import SGSimpleSettings // MARK: Ghost mode
 
 
 private enum PeerReadStateMarker: Equatable {
@@ -252,6 +253,13 @@ private func validatePeerReadState(network: Network, postbox: Postbox, stateMana
 }
 
 private func pushPeerReadState(network: Network, postbox: Postbox, stateManager: AccountStateManager, peerId: PeerId, readState: PeerReadState) -> Signal<PeerReadState, PeerReadStateValidationError> {
+    // MARK: Ghost mode
+    // Nothing is sent to the server, so the sender never sees the chat as read. The local read state is kept as is,
+    // and the operation completes like a successful push, so it is not retried.
+    if SGSimpleSettings.shared.isGhostReadReceiptsHidden {
+        return .single(readState)
+    }
+    //
     if peerId.namespace == Namespaces.Peer.SecretChat {
         // Decide whether a request is needed before looking the peer up: inputSecretChat goes
         // through loadedPeerWithId, which never emits when the peer row is missing and fails

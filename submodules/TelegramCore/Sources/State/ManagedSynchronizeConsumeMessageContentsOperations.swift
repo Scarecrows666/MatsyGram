@@ -3,6 +3,7 @@ import Postbox
 import SwiftSignalKit
 internal import TelegramApi
 import MtProtoKit
+import SGSimpleSettings // MARK: Ghost mode
 
 
 private final class ManagedSynchronizeConsumeMessageContentsOperationHelper {
@@ -110,6 +111,12 @@ func managedSynchronizeConsumeMessageContentOperations(postbox: Postbox, network
 }
 
 private func synchronizeConsumeMessageContents(transaction: Transaction, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeConsumeMessageContentsOperation) -> Signal<Void, NoError> {
+    // MARK: Ghost mode
+    // Playing a voice message or a video note must not tell the sender that it was listened to.
+    if SGSimpleSettings.shared.isGhostReadReceiptsHidden {
+        return .complete()
+    }
+    //
     if peerId.namespace == Namespaces.Peer.CloudUser || peerId.namespace == Namespaces.Peer.CloudGroup {
         return network.request(Api.functions.messages.readMessageContents(id: operation.messageIds.map { $0.id }))
         |> map(Optional.init)

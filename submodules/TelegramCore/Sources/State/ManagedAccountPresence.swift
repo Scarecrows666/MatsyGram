@@ -3,6 +3,7 @@ internal import TelegramApi
 import Postbox
 import SwiftSignalKit
 import MtProtoKit
+import SGSimpleSettings // MARK: Ghost mode
 
 private typealias SignalKitTimer = SwiftSignalKit.Timer
 
@@ -53,10 +54,22 @@ private final class AccountPresenceManagerImpl {
             }, queue: self.queue)
             self.onlineTimer = timer
             timer.start()
+            // MARK: Ghost mode
+            // The timer keeps running, so the next tick after the option is switched off reports the account online again.
+            if SGSimpleSettings.shared.isGhostOnlineStatusHidden {
+                return
+            }
+            //
             request = self.network.request(Api.functions.account.updateStatus(offline: .boolFalse))
         } else {
             self.onlineTimer?.invalidate()
             self.onlineTimer = nil
+            // MARK: Ghost mode
+            // An explicit "offline" request would publish a fresh last-seen time, so nothing is sent.
+            if SGSimpleSettings.shared.isGhostOnlineStatusHidden {
+                return
+            }
+            //
             request = self.network.request(Api.functions.account.updateStatus(offline: .boolTrue))
         }
         self.isPerformingUpdate.set(true)

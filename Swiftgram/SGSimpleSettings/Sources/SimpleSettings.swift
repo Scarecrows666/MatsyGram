@@ -179,6 +179,11 @@ public class SGSimpleSettings {
         case sendWithReturnKey
         case videoControlsInFooter
         case hideAccountInNotifications
+        case ghostModeEnabled
+        case ghostNoReadReceipts
+        case ghostNoOnlineStatus
+        case ghostNoStoryViews
+        case ghostScheduledSend
     }
     
     public enum DownloadSpeedBoostValues: String, CaseIterable {
@@ -343,6 +348,11 @@ public class SGSimpleSettings {
         Keys.status.rawValue: 1,
         Keys.showRepostToStoryV2.rawValue: true,
         Keys.hideAccountInNotifications.rawValue: false,
+        Keys.ghostModeEnabled.rawValue: false,
+        Keys.ghostNoReadReceipts.rawValue: true,
+        Keys.ghostNoOnlineStatus.rawValue: true,
+        Keys.ghostNoStoryViews.rawValue: true,
+        Keys.ghostScheduledSend.rawValue: true,
     ]
     
     @UserDefault(key: Keys.hidePhoneInSettings.rawValue)
@@ -621,6 +631,45 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.hideAccountInNotifications.rawValue, userDefaults: UserDefaults(suiteName: APP_GROUP_IDENTIFIER) ?? .standard)
     public var hideAccountInNotifications: Bool
+
+    // MARK: Ghost mode
+    @UserDefault(key: Keys.ghostModeEnabled.rawValue)
+    public var ghostModeEnabled: Bool
+
+    @UserDefault(key: Keys.ghostNoReadReceipts.rawValue)
+    public var ghostNoReadReceipts: Bool
+
+    @UserDefault(key: Keys.ghostNoOnlineStatus.rawValue)
+    public var ghostNoOnlineStatus: Bool
+
+    @UserDefault(key: Keys.ghostNoStoryViews.rawValue)
+    public var ghostNoStoryViews: Bool
+
+    @UserDefault(key: Keys.ghostScheduledSend.rawValue)
+    public var ghostScheduledSend: Bool
+}
+
+extension SGSimpleSettings {
+    /// Delay for outgoing messages sent through the scheduled-message path in ghost mode.
+    /// The server rejects schedule dates that are too close to its current time, so the value must stay above ~10 s.
+    public static let ghostScheduledSendDelay: Int32 = 12
+
+    /// Effective flags: a sub-option only applies while the master switch is on.
+    public var isGhostReadReceiptsHidden: Bool {
+        return self.ghostModeEnabled && self.ghostNoReadReceipts
+    }
+
+    public var isGhostOnlineStatusHidden: Bool {
+        return self.ghostModeEnabled && self.ghostNoOnlineStatus
+    }
+
+    public var isGhostStoryViewsHidden: Bool {
+        return self.ghostModeEnabled && self.ghostNoStoryViews
+    }
+
+    public var isGhostScheduledSendEnabled: Bool {
+        return self.ghostModeEnabled && self.ghostScheduledSend
+    }
 }
 
 extension SGSimpleSettings {
