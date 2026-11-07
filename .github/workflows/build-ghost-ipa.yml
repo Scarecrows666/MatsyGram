@@ -1,0 +1,98 @@
+name: Build unsigned IPA
+
+# Manual run only: Actions tab -> "Build unsigned IPA" -> Run workflow.
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   TG_API_ID    - api_id from https://my.telegram.org/apps
+#   TG_API_HASH  - api_hash from the same page
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select the newest installed Xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          echo "Wanted by the project: $(python3 -c 'import json;print(json.load(open("versions.json"))["xcode"])')"
+
+      - name: Write the build configuration with your API credentials
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TG_API_ID}" ] || [ -z "${TG_API_HASH}" ]; then
+            echo "Secrets TG_API_ID and TG_API_HASH must be set." >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os
+          with open("build-system/appstore-configuration.json") as f:
+              config = json.load(f)
+          config["api_id"] = os.environ["TG_API_ID"]
+          config["api_hash"] = os.environ["TG_API_HASH"]
+          # Required by BuildConfiguration.py; the upstream template uses an empty string.
+          config.setdefault("sg_config", "")
+          with open("build-system/ghost-configuration.json", "w") as f:
+              json.dump(config, f, indent=2)
+          PY
+
+      - name: Restore the Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: bazel-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            bazel-${{ runner.os }}-
+
+      - name: Build the app
+        run: |
+          set -euxo pipefail
+
+          BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
+          COMMIT_COUNT="$(git rev-list --count HEAD)"
+          BUILD_NUMBER="$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))"
+
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+
+          python3 -u build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="build-system/ghost-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+
+      - name: Collect the IPA
+        run: |
+          set -euo pipefail
+          mkdir -p build/artifacts
+          IPA="bazel-bin/Telegram/Telegram.ipa"
+          if [ ! -f "$IPA" ]; then
+            IPA="$(find bazel-out -path '*/bin/Telegram/Telegram.ipa' | head -n 1)"
+          fi
+          test -n "$IPA" && test -f "$IPA"
+          cp "$IPA" build/artifacts/Telegram-Ghost.ipa
+          ls -la build/artifacts
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-Ghost-ipa
+          path: build/artifacts/Telegram-Ghost.ipa
+          retention-days: 7
+          if-no-files-found: error
